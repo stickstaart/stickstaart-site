@@ -1,29 +1,11 @@
 // Voorbeelddata voor de demo: twee verzonnen bands, geen echte personen of contacten.
 // Datums zijn relatief aan vandaag, zodat de demo altijd "actueel" oogt.
 
-export type Role = "admin" | "member";
-export type ShowStatus = "option" | "confirmed" | "cancelled";
+import type { Band, DateItem, Member, TourIdea } from "../types";
 
-export interface SampleMember { uid: string; name: string; role: Role }
-export interface SampleShow {
-  id: string;
-  ownerUid: string;
-  date: string;
-  endDate?: string;
-  country: string;
-  city: string;
-  venue: string;
-  status: ShowStatus;
-  otherbands?: string;
-  guaranteedFee?: string;
-  isPaid?: boolean;
-  isPublic?: boolean;
-  tourName?: string;
-  isBlocked?: boolean;
-  reason?: string;
-}
-export interface SampleIdea { id: string; ownerUid: string; title: string; country?: string; targetPeriod?: string; notes?: string }
-export interface SampleBand { id: string; name: string; theme: string; members: SampleMember[]; shows: SampleShow[]; ideas: SampleIdea[] }
+type SampleShow = Omit<DateItem, "owner" | "blockedBy"> & { ownerUid: string };
+type SampleIdea = Omit<TourIdea, "owner"> & { ownerUid: string };
+export interface SampleBand extends Band { members: Member[]; shows: SampleShow[]; ideas: SampleIdea[] }
 
 const day = (offset: number) => {
   const d = new Date();
@@ -49,8 +31,8 @@ export const sampleBands = (): SampleBand[] => [
       { id: "r4", ownerUid: "rotkop-ana", date: day(10), country: "DE", city: "Hamburg", venue: "Hafenkeller", status: "option", tourName: "Winterroest Tour" },
       { id: "r5", ownerUid: "rotkop-dewi", date: day(24), country: "NL", city: "Groningen", venue: "Het Pakhuis", status: "option" },
       { id: "r6", ownerUid: "rotkop-erik", date: day(41), country: "FR", city: "Rijsel", venue: "La Cave", status: "cancelled" },
-      { id: "rb1", ownerUid: "rotkop-dewi", date: day(23), endDate: day(30), country: "", city: "", venue: "", status: "confirmed", isBlocked: true, reason: "Vakantie" },
-      { id: "rb2", ownerUid: "rotkop-bram", date: day(10), country: "", city: "", venue: "", status: "confirmed", isBlocked: true, reason: "Bruiloft" },
+      { id: "rb1", ownerUid: "rotkop-dewi", date: day(23), endDate: day(30), country: "NL", city: "GEBLOKKEERD", venue: "", status: "cancelled", isBlocked: true, reason: "Vakantie" },
+      { id: "rb2", ownerUid: "rotkop-bram", date: day(10), country: "NL", city: "GEBLOKKEERD", venue: "", status: "cancelled", isBlocked: true, reason: "Bruiloft" },
     ],
     ideas: [
       { id: "ri1", ownerUid: "rotkop-erik", title: "Scandinavië-rondje", country: "SE", targetPeriod: "Voorjaar", notes: "Vijf shows, met de nachtboot heen" },
@@ -69,7 +51,7 @@ export const sampleBands = (): SampleBand[] => [
     shows: [
       { id: "l1", ownerUid: "lawaai-cees", date: day(5), country: "NL", city: "Nijmegen", venue: "Het Gat", status: "confirmed", guaranteedFee: "250", isPublic: true },
       { id: "l2", ownerUid: "lawaai-fem", date: day(19), country: "NL", city: "Leiden", venue: "Bar Bas", status: "option" },
-      { id: "lb1", ownerUid: "lawaai-gijs", date: day(19), country: "", city: "", venue: "", status: "confirmed", isBlocked: true, reason: "Studio met andere band" },
+      { id: "lb1", ownerUid: "lawaai-gijs", date: day(19), country: "NL", city: "GEBLOKKEERD", venue: "", status: "cancelled", isBlocked: true, reason: "Studio met andere band" },
     ],
     ideas: [{ id: "li1", ownerUid: "lawaai-cees", title: "Festivalzomer", targetPeriod: "Zomer" }],
   },
