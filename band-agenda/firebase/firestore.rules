@@ -1,0 +1,131 @@
+rules_version = '2';
+
+// Firestore-regels voor de multi-tenant band-agenda.
+//
+// Datamodel:
+//   superadmins/{uid}                       – bestaat = superadmin (alleen via console aan te maken)
+//   bands/{bandId}                          – naam, thema
+//   bands/{bandId}/members/{uid}            – { name, email, role: "admin" | "member" }
+//   bands/{bandId}/shows/{id}               – shows én blokkades (isBlocked), ownerUid = lid
+//   bands/{bandId}/ideas/{id}               – tour-ideeën, ownerUid = lid
+//   bands/{bandId}/publicShows/{id}         – publieke projectie van een show (zelfde id)
+//
+// Principes:
+//   - Een band ziet alleen zijn eigen data (lidmaatschap = members/{uid} bestaat).
+//   - Een lid wijzigt alleen items met ownerUid == eigen uid; eigenaar wisselen kan alleen de superadmin.
+//   - updatedBy is altijd de echte ingelogde gebruiker, ook als de superadmin "als lid" werkt.
+//   - De superadmin mag alles in elke band.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function uid() {
+      return request.auth.uid;
+    }
+    function isSuper() {
+      return signedIn() && exists(/databases/$(database)/documents/superadmins/$(uid()));
+    }
+    function memberPath(bandId, userId) {
+      return /databases/$(database)/documents/bands/$(bandId)/members/$(userId);
+    }
+    function isMember(bandId) {
+      return signedIn() && exists(memberPath(bandId, uid()));
+    }
+    function isBandAdmin(bandId) {
+      return isMember(bandId) && get(memberPath(bandId, uid())).data.role == "admin";
+    }
+
+    // Audit: updatedBy moet de echte gebruiker zijn en updatedAt de servertijd
+    function auditOk() {
+      return request.resource.data.updatedBy == uid()
+        && request.resource.data.updatedAt == request.time;
+    }
+    // Eigenaar moet lid van de band zijn
+    function ownerIsMember(bandId) {
+      return exists(memberPath(bandId, request.resource.data.ownerUid));
+    }
+
+    // Gedeelde regels voor items met een eigenaar (shows/blokkades en ideeën)
+    function canCreateOwned(bandId) {
+      return auditOk()
+        && request.resource.data.createdBy == uid()
+        && ownerIsMember(bandId)
+        && (isSuper() || (isMember(bandId) && request.resource.data.ownerUid == uid()));
+    }
+    function canUpdateOwned(bandId) {
+      return auditOk()
+        && request.resource.data.createdBy == resource.data.createdBy
+        && ownerIsMember(bandId)
+        && (isSuper() || (
+          isMember(bandId)
+          && resource.data.ownerUid == uid()
+          && request.resource.data.ownerUid == uid()
+        ));
+    }
+    function canDeleteOwned(bandId) {
+      return isSuper() || (isMember(bandId) && resource.data.ownerUid == uid());
+    }
+
+    match /superadmins/{userId} {
+      allow get: if signedIn() && userId == uid();
+      allow list, write: if false;
+    }
+
+    match /bands/{bandId} {
+      allow get: if isMember(bandId) || isSuper();
+      allow list: if isSuper();
+      allow write: if isSuper();
+
+      match /members/{userId} {
+        allow read: if isMember(bandId) || isSuper();
+        // Leden beheren: superadmin, of een band-admin (die zichzelf niet kan degraderen of verwijderen)
+        allow create: if isSuper()
+          || (isBandAdmin(bandId) && request.resource.data.role in ["admin", "member"]);
+        allow update: if isSuper()
+          || (isBandAdmin(bandId) && request.resource.data.role in ["admin", "member"]
+              && (userId != uid() || request.resource.data.role == "admin"));
+        allow delete: if isSuper() || (isBandAdmin(bandId) && userId != uid());
+      }
+
+      match /shows/{showId} {
+        allow read: if isMember(bandId) || isSuper();
+        allow create: if canCreateOwned(bandId);
+        allow update: if canUpdateOwned(bandId);
+        allow delete: if canDeleteOwned(bandId);
+      }
+
+      match /ideas/{ideaId} {
+        allow read: if isMember(bandId) || isSuper();
+        allow create: if canCreateOwned(bandId);
+        allow update: if canUpdateOwned(bandId);
+        allow delete: if canDeleteOwned(bandId);
+      }
+
+      // Publieke tourlijst: iedereen leest, schrijven alleen samen met (de eigenaar van) de show.
+      match /publicShows/{showId} {
+        function showPath() {
+          return /databases/$(database)/documents/bands/$(bandId)/shows/$(showId);
+        }
+        allow read: if true;
+        allow create, update: if isSuper() || (
+          isMember(bandId)
+          && existsAfter(showPath())
+          && getAfter(showPath()).data.ownerUid == uid()
+          && request.resource.data.keys().hasOnly(["date", "country", "city", "venue", "bands", "tour"])
+        );
+        allow delete: if isSuper() || (
+          isMember(bandId)
+          && (existsAfter(showPath())
+            ? getAfter(showPath()).data.ownerUid == uid()
+            : get(showPath()).data.ownerUid == uid())
+        );
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
